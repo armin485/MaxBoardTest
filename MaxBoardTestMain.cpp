@@ -1,14 +1,14 @@
 // In The Name Of God
-#include<stdio.h>
-#include<fcntl.h>
-#include<sys/ioctl.h>
-#include<stdint.h>
-#include<linux/spi/spidev.h>
-#include<stdlib.h>
-#include<string.h>
-#include<iostream>
-#include<unistd.h> //for usleep
-#include"GPIO.h"
+#include <stdio.h>
+#include <fcntl.h>
+#include <sys/ioctl.h>
+#include <stdint.h>
+#include <linux/spi/spidev.h>
+#include <stdlib.h>
+#include <string.h>
+#include <iostream>
+#include <unistd.h> //for usleep
+#include "GPIO.h"
 
 using namespace exploringBB;
 using namespace std;
@@ -88,16 +88,44 @@ int transfer(int fd, unsigned char send[], unsigned char receive[], int length){
    return status;
 }
 
+int maxSpiSend(int fd, GPIO *CsClass, unsigned char addr, unsigned long int data)
+{
+	unsigned char null = 0x00;
+	
+	data <<= 4;
+	CsClass.setValue(LOW);
+	if (transfer(fd, (unsigned char)(data&0xFF)|addr, &null, 1)==-1)
+	{
+		perror("Failed to update the display");
+		return -1;
+	}
+	if (transfer(fd, (unsigned char)(data>>8), &null, 1)==-1)
+	{
+		perror("Failed to update the display");
+		return -1;
+	}
+	if (transfer(fd, (unsigned char)(data>>16), &null, 1)==-1)
+	{
+		perror("Failed to update the display");
+		return -1;
+	}
+	if (transfer(fd, (unsigned char)(data>>24), &null, 1)==-1)
+	{
+		perror("Failed to update the display");
+		return -1;
+	}
+	CsClass.setValue(HIGH);
+	
+	return 1;
+}
 
-int main(){
-   int fd, i=0,j=0;                   //file handle and loop counter
-   unsigned char value, null=0x00;         //sending only a single char
-   uint8_t bits = 8, mode = 0;             //8-bits per word, SPI mode 3
-   uint32_t speed = 100000;               //Speed is 1 MHz
-
-   GPIO outGPIO(48);
-   outGPIO.setDirection(OUTPUT);
-   outGPIO.setValue(HIGH);
+int maxSpiInit(GPIO *CsClass, unsigned long int SpiClock, unsigned int SpiDelayUs)
+{
+	int fd;
+	uint8_t bits = 8, mode = 0;             //8-bits per word, SPI mode 0
+	
+    CsClass.setDirection(OUTPUT);
+    CsClass.setValue(HIGH);
 
       // The following calls set up the SPI bus properties
    if ((fd = open(SPI_PATH, O_RDWR))<0){
@@ -120,11 +148,11 @@ int main(){
       perror("SPI: Can't get bits per word.");
       return -1;
    }
-   if (ioctl(fd, SPI_IOC_WR_MAX_SPEED_HZ, &speed)==-1){
+   if (ioctl(fd, SPI_IOC_WR_MAX_SPEED_HZ, &SpiClock)==-1){
       perror("SPI: Can't set max speed HZ");
       return -1;
    }
-   if (ioctl(fd, SPI_IOC_RD_MAX_SPEED_HZ, &speed)==-1){
+   if (ioctl(fd, SPI_IOC_RD_MAX_SPEED_HZ, &SpiClock)==-1){
       perror("SPI: Can't get max speed HZ.");
       return -1;
    }
@@ -132,9 +160,19 @@ int main(){
    // Check that the properties have been set
    printf("SPI Mode is: %d\n", mode);
    printf("SPI Bits is: %d\n", bits);
-   printf("SPI Speed is: %d\n", speed);
+   printf("SPI Speed is: %d\n", SpiClock);	
+   
+   return fd;
+}
 
 
+int main(){
+   int fd, i=0,j=0;                   //file handle and loop counter
+   
+   GPIO CsGPIO(48);
+   
+   fd = maxSpiInit(&CsGPIO, 100000, 5);
+   
 
    unsigned char addrbuffer[]=
    {
@@ -157,42 +195,18 @@ int main(){
    {
 		for(i=0;i<10;i++)
 		{
-			unsigned char data[4];
-			data[0] = (unsigned char)((txbuffer[i] & 0x0F) << 4)|addrbuffer[i];
-			data[1] = (unsigned char)(txbuffer[i] >> 4) & 0xFF;
-			data[2] = (unsigned char)(txbuffer[i] >> 12) & 0xFF;
-			data[3] = (unsigned char)(txbuffer[i] >> 20) & 0xFF;
-
-			outGPIO.setValue(LOW);
-			if (transfer(fd, &data[3], &null, 1)==-1)
+			if (maxSpiSend(fd, CsGPIO, addrbuffer[i],data[i], 1)==-1)
 			{
 				perror("Failed to update the display");
 				return -1;
 			}
-			if (transfer(fd, &data[2], &null, 1)==-1)
-			{
-				perror("Failed to update the display");
-				return -1;
-			}
-			if (transfer(fd, &data[1], &null, 1)==-1)
-			{
-				perror("Failed to update the display");
-				return -1;
-			}
-			if (transfer(fd, &data[0], &null, 1)==-1)
-			{
-				perror("Failed to update the display");
-				return -1;
-			}
-			outGPIO.setValue(HIGH);
 			usleep(1000);       //sleep for 1ms each loop
 
 		}
-      fflush(stdout);       //need to flush the output, no \n
       usleep(10000);       //sleep for 10ms each loop
    };
    close(fd);               //close the file
-   outGPIO.streamClose();
+   CsGPIO.streamClose();
 
    return 0;
 }
