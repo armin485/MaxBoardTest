@@ -1,2 +1,2 @@
 # MaxBoardTest
-MAX2769 Starting Board Test Programe
+MAX2769 Starting Board Test Program
